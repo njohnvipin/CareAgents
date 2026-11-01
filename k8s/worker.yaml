@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: careagents-worker
+  labels: {app: careagents, component: worker}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: careagents, component: worker}
+  template:
+    metadata:
+      labels: {app: careagents, component: worker}
+    spec:
+      terminationGracePeriodSeconds: 120
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: worker
+          image: ghcr.io/your-org/careagents:IMAGE_TAG
+          command: ["arq", "careagents.worker.WorkerSettings"]
+          envFrom:
+            - configMapRef: {name: careagents-config}
+            - secretRef: {name: careagents-secrets}
+          resources:
+            requests: {cpu: 500m, memory: 1Gi}
+            limits: {memory: 2Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {}}]

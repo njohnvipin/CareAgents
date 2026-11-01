@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: careagents-config
+data:
+  CA_ENV: prod
+  CA_LOG_LEVEL: INFO
+  CA_DATA_BACKEND: postgres
+  CA_EMBEDDINGS_BACKEND: sentence-transformers
+  CA_LLM_FAST_MODELS: '["openai/gpt-oss-20b","openai/gpt-oss-120b"]'
+  CA_LLM_STRONG_MODELS: '["openai/gpt-oss-120b","openai/gpt-oss-20b"]'
+  # Fleet-wide LLM concurrency = replicas x this. Keep it under the provider's rate limit.
+  CA_LLM_MAX_CONCURRENCY: "16"
+  CA_REQUEST_DEADLINE_S: "45"
+  CA_DB_POOL_MAX: "10"
+  CA_RATE_LIMIT_PER_MINUTE: "20"
+  CA_JWT_ALGORITHMS: '["RS256"]'
+  CA_JWT_AUDIENCE: careagents
+  CA_OTEL_ENABLED: "true"
+  FORWARDED_ALLOW_IPS: "10.0.0.0/8"

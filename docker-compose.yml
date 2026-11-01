@@ -1,0 +1,60 @@
+# Full local stack: docker compose up --build
+x-app: &app
+  build:
+    context: .
+    args:
+      EXTRAS: "[embeddings]"
+  env_file: .env
+  environment: &app-env
+    CA_ENV: dev
+    CA_DATA_BACKEND: postgres
+    CA_DATABASE_URL: postgresql://careagents:careagents@postgres:5432/careagents
+    CA_REDIS_URL: redis://redis:6379/0
+    CA_EMBEDDINGS_BACKEND: sentence-transformers
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: careagents
+      POSTGRES_PASSWORD: careagents
+      POSTGRES_DB: careagents
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U careagents"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  migrate:
+    <<: *app
+    command: ["sh", "-c", "python -m careagents.migrate && python -m careagents.seed"]
+    restart: "no"
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  api:
+    <<: *app
+    ports: ["8000:8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+
+  worker:
+    <<: *app
+    command: ["arq", "careagents.worker.WorkerSettings"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+
+volumes:
+  pgdata:

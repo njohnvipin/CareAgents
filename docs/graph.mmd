@@ -1,0 +1,53 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([__start__]):::first
+	plan(plan)
+	escalate(escalate)
+	dispatch(dispatch)
+	check(check)
+	compose(compose)
+	verify(verify)
+	finalize(finalize)
+	request_review(request_review)
+	human_review(human_review)
+	apply_review(apply_review)
+	policy(policy)
+	claims(claims)
+	authorization(authorization)
+	billing(billing)
+	__end__([__end__]):::last
+	__start__ --> plan;
+	authorization --> dispatch;
+	billing --> dispatch;
+	check -.-> compose;
+	check -.-> dispatch;
+	check -.-> finalize;
+	claims --> dispatch;
+	compose -.-> finalize;
+	compose -.-> verify;
+	dispatch -.-> authorization;
+	dispatch -.-> billing;
+	dispatch -.-> check;
+	dispatch -.-> claims;
+	dispatch -.-> policy;
+	escalate -.-> __end__;
+	escalate -.-> request_review;
+	human_review --> apply_review;
+	plan -.-> dispatch;
+	plan -.-> escalate;
+	policy --> dispatch;
+	request_review --> human_review;
+	verify -.-> __end__;
+	verify -.-> compose;
+	verify -.-> finalize;
+	verify -.-> request_review;
+	apply_review --> __end__;
+	finalize --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
+

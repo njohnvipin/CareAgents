@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  push: {branches: [main]}
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_evals: {description: "Run LLM evals", type: boolean, default: false}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env: {POSTGRES_USER: careagents, POSTGRES_PASSWORD: careagents, POSTGRES_DB: careagents}
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U careagents" --health-interval 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-retries 10
+    env:
+      CA_DATABASE_URL: postgresql://careagents:careagents@localhost:5432/careagents
+      CA_TEST_DATABASE_URL: postgresql://careagents:careagents@localhost:5432/careagents
+      CA_TEST_REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -e ".[dev]"
+      - run: ruff check src tests eval
+      - run: mypy src
+      - run: python -m careagents.migrate && python -m careagents.seed
+      - run: pytest -q
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: EXTRAS=[embeddings]
+          push: false
+          tags: careagents:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  evals:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_evals
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -e .
+      - run: python eval/run_eval.py --min-pass 0.9 --repeat 2
+        env: {CA_LLM_API_KEY: "${{ secrets.CA_LLM_API_KEY }}"}

@@ -1,0 +1,22 @@
+# Run before each rollout (e.g. Helm pre-upgrade hook or an Argo CD PreSync hook).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: careagents-migrate
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: migrate
+          image: ghcr.io/your-org/careagents:IMAGE_TAG
+          command: ["python", "-m", "careagents.migrate"]
+          envFrom:
+            - configMapRef: {name: careagents-config}
+            - secretRef: {name: careagents-secrets}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {memory: 512Mi}

@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: careagents-api
+  labels: {app: careagents, component: api}
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 25%, maxUnavailable: 0}
+  selector:
+    matchLabels: {app: careagents, component: api}
+  template:
+    metadata:
+      labels: {app: careagents, component: api}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: /metrics/
+    spec:
+      # Longer than the request deadline, so in-flight cases finish during a rollout.
+      terminationGracePeriodSeconds: 60
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app: careagents, component: api}
+      containers:
+        - name: api
+          image: ghcr.io/your-org/careagents:IMAGE_TAG
+          ports: [{name: http, containerPort: 8000}]
+          envFrom:
+            - configMapRef: {name: careagents-config}
+            - secretRef: {name: careagents-secrets}
+          resources:
+            requests: {cpu: 500m, memory: 1Gi}
+            limits: {memory: 2Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+          startupProbe:
+            httpGet: {path: /livez, port: http}
+            periodSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: {path: /livez, port: http}
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+            failureThreshold: 2
+          lifecycle:
+            # Let endpoints/ingress drop this pod before uvicorn stops accepting connections.
+            preStop: {exec: {command: ["python", "-c", "import time; time.sleep(5)"]}}
+      volumes: [{name: tmp, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: careagents-api
+spec:
+  selector: {app: careagents, component: api}
+  ports: [{name: http, port: 80, targetPort: http}]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: careagents-api
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: careagents-api}
+  minReplicas: 3
+  maxReplicas: 30
+  # CPU is a weak signal for an LLM-bound service (pods mostly wait on I/O). Prefer scaling on
+  # in-flight requests or p95 latency via KEDA / prometheus-adapter once you have traffic data.
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 60}}
+  behavior:
+    scaleUp: {stabilizationWindowSeconds: 0, policies: [{type: Percent, value: 100, periodSeconds: 30}]}
+    scaleDown: {stabilizationWindowSeconds: 300, policies: [{type: Percent, value: 20, periodSeconds: 60}]}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: careagents-api
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: {app: careagents, component: api}
